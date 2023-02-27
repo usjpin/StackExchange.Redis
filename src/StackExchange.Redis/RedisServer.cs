@@ -871,14 +871,14 @@ namespace StackExchange.Redis
 
             public static byte[] RawHash(string value)
             {
-                if (value is null) return default;
+                if (value is null) return new byte[0];
                 var sha1 = SHA1.Create();
                 return sha1.ComputeHash(Encoding.UTF8.GetBytes(value));
             }
 
             public static RedisValue Hash(string value)
             {
-                return Encode(RawHash(bytes));
+                return Encode(RawHash(value));
             }
         }
 
