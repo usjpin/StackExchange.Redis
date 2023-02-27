@@ -4781,7 +4781,7 @@ namespace StackExchange.Redis
             public override int ArgCount => _args.Count;
         }
 
-        private sealed class ScriptEvalMessage : Message, IMultiMessage
+        private sealed class ScriptEvalMessage : Message
         {
             private readonly RedisKey[] keys;
             private readonly string? script;
@@ -4823,21 +4823,6 @@ namespace StackExchange.Redis
                 for (int i = 0; i < keys.Length; i++)
                     slot = serverSelectionStrategy.CombineSlot(slot, keys[i]);
                 return slot;
-            }
-
-            public IEnumerable<Message> GetMessages(PhysicalConnection connection)
-            {
-                PhysicalBridge? bridge;
-                if (script != null && (bridge = connection.BridgeCouldBeNull) != null
-                    && bridge.Multiplexer.CommandMap.IsAvailable(RedisCommand.SCRIPT)
-                    && (Flags & CommandFlags.NoScriptCache) == 0)
-                {
-                    var msg = new ScriptLoadMessage(Flags, script);
-                    msg.SetInternalCall();
-                    msg.SetSource(ResultProcessor.ScriptLoad, null);
-                    yield return msg;
-                }
-                yield return this;
             }
 
             protected override void WriteImpl(PhysicalConnection physical)
