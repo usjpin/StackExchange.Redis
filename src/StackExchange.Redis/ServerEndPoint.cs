@@ -341,14 +341,6 @@ namespace StackExchange.Redis
 
         internal void Activate(ConnectionType type, LogProxy? log) => GetBridge(type, true, log);
 
-        internal void AddScript(string script, byte[] hash)
-        {
-            lock (knownScripts)
-            {
-                knownScripts[script] = hash;
-            }
-        }
-
         internal async Task AutoConfigureAsync(PhysicalConnection? connection, LogProxy? log = null)
         {
             if (!serverType.SupportsAutoConfigure())
@@ -464,31 +456,13 @@ namespace StackExchange.Redis
             }
         }
 
-        internal void FlushScriptCache()
-        {
-            lock (knownScripts)
-            {
-                knownScripts.Clear();
-            }
-        }
-
         private string? runId;
         internal string? RunId
         {
             get => runId;
             set
             {
-                // We only care about changes
-                if (value != runId)
-                {
-                    // If we had an old run-id, and it has changed, then the server has been restarted
-                    // ...which means the script cache is toast
-                    if (runId != null)
-                    {
-                        FlushScriptCache();
-                    }
-                    runId = value;
-                }
+                runId = value;
             }
         }
 
@@ -522,21 +496,6 @@ namespace StackExchange.Redis
             sb.Append("; sub:");
             subscription?.AppendProfile(sb);
             return sb.ToString();
-        }
-
-        internal byte[]? GetScriptHash(string script, RedisCommand command)
-        {
-            var found = (byte[]?)knownScripts[script];
-            if (found == null && command == RedisCommand.EVALSHA)
-            {
-                // The script provided is a hex SHA - store and re-use the ASCii for that
-                found = Encoding.ASCII.GetBytes(script);
-                lock (knownScripts)
-                {
-                    knownScripts[script] = found;
-                }
-            }
-            return found;
         }
 
         internal string? GetStormLog(Message message) => GetBridge(message)?.GetStormLog();

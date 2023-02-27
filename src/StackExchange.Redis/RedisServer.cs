@@ -849,7 +849,7 @@ namespace StackExchange.Redis
             _ => throw new ArgumentOutOfRangeException(nameof(type)),
         };
 
-        private static class ScriptHash
+        internal static class ScriptHash
         {
             public static RedisValue Encode(byte[] value)
             {
@@ -869,14 +869,16 @@ namespace StackExchange.Redis
                 return result;
             }
 
-            public static RedisValue Hash(string value)
+            public static byte[] RawHash(string value)
             {
                 if (value is null) return default;
-                using (var sha1 = SHA1.Create())
-                {
-                    var bytes = sha1.ComputeHash(Encoding.UTF8.GetBytes(value));
-                    return Encode(bytes);
-                }
+                var sha1 = SHA1.Create();
+                return sha1.ComputeHash(Encoding.UTF8.GetBytes(value));
+            }
+
+            public static RedisValue Hash(string value)
+            {
+                return Encode(RawHash(bytes));
             }
         }
 

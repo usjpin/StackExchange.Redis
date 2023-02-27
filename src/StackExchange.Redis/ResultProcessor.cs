@@ -557,10 +557,6 @@ namespace StackExchange.Redis
                         // For nullability/consistency reasons, we always do the parse here.
                         byte[] hash = ParseSHA1(asciiHash);
 
-                        if (message is RedisDatabase.ScriptLoadMessage sl)
-                        {
-                            connection.BridgeCouldBeNull?.ServerEndPoint?.AddScript(sl.Script, asciiHash);
-                        }
                         SetResult(message, hash);
                         return true;
                 }
@@ -1785,7 +1781,6 @@ The coordinates as a two items x,y array (longitude,latitude).
             {
                 if (result.Type == ResultType.Error && result.StartsWith(CommonReplies.NOSCRIPT))
                 { // scripts are not flushed individually, so assume the entire script cache is toast ("SCRIPT FLUSH")
-                    connection.BridgeCouldBeNull?.ServerEndPoint?.FlushScriptCache();
                     message.SetScriptUnavailable();
                 }
                 // and apply usual processing for the rest
