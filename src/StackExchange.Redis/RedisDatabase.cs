@@ -1513,15 +1513,17 @@ namespace StackExchange.Redis
 
         public RedisResult ScriptEvaluate(string script, RedisKey[]? keys = null, RedisValue[]? values = null, CommandFlags flags = CommandFlags.None)
         {
-            var command = ResultProcessor.ScriptLoadProcessor.IsSHA1(script) ? RedisCommand.EVALSHA : RedisCommand.EVAL;
-            var msg = new ScriptEvalMessage(Database, flags, command, script, keys, values);
+            // optimistically try EVALSHA first
+            var scriptHash = RedisServer.ScriptHash.RawHash(script);
+            var msg = new ScriptEvalMessage(Database, flags, RedisCommand.EVALSHA, scriptHash, keys, values);
             try
             {
                 return ExecuteSync(msg, ResultProcessor.ScriptResult, defaultValue: RedisResult.NullSingle);
             }
             catch (RedisServerException) when (msg.IsScriptUnavailable)
             {
-                // could be a NOSCRIPT; for a sync call, we can re-issue that without problem
+                // could be a NOSCRIPT; fallback to EVAL 
+                msg = new ScriptEvalMessage(Database, flags, RedisCommand.EVAL, script, keys, values);
                 return ExecuteSync(msg, ResultProcessor.ScriptResult, defaultValue: RedisResult.NullSingle);
             }
         }
@@ -1544,16 +1546,17 @@ namespace StackExchange.Redis
 
         public async Task<RedisResult> ScriptEvaluateAsync(string script, RedisKey[]? keys = null, RedisValue[]? values = null, CommandFlags flags = CommandFlags.None)
         {
-            var command = ResultProcessor.ScriptLoadProcessor.IsSHA1(script) ? RedisCommand.EVALSHA : RedisCommand.EVAL;
-            var msg = new ScriptEvalMessage(Database, flags, command, script, keys, values);
-
+            // optimistically try EVALSHA first
+            var scriptHash = RedisServer.ScriptHash.RawHash(script);
+            var msg = new ScriptEvalMessage(Database, flags, RedisCommand.EVALSHA, scriptHash, keys, values);
             try
             {
                 return await ExecuteAsync(msg, ResultProcessor.ScriptResult, defaultValue: RedisResult.NullSingle).ConfigureAwait(false);
             }
             catch (RedisServerException) when (msg.IsScriptUnavailable)
             {
-                // could be a NOSCRIPT; for a sync call, we can re-issue that without problem
+                // could be a NOSCRIPT; fallback to EVAL 
+                msg = new ScriptEvalMessage(Database, flags, RedisCommand.EVAL, script, keys, values);
                 return await ExecuteAsync(msg, ResultProcessor.ScriptResult, defaultValue: RedisResult.NullSingle).ConfigureAwait(false);
             }
         }
@@ -4778,12 +4781,11 @@ namespace StackExchange.Redis
             public override int ArgCount => _args.Count;
         }
 
-        private sealed class ScriptEvalMessage : Message, IMultiMessage
+        private sealed class ScriptEvalMessage : Message
         {
             private readonly RedisKey[] keys;
             private readonly string? script;
             private readonly RedisValue[] values;
-            private byte[]? asciiHash;
             private readonly byte[]? hexHash;
 
             public ScriptEvalMessage(int db, CommandFlags flags, RedisCommand command, string script, RedisKey[]? keys, RedisValue[]? values)
@@ -4823,38 +4825,12 @@ namespace StackExchange.Redis
                 return slot;
             }
 
-            public IEnumerable<Message> GetMessages(PhysicalConnection connection)
-            {
-                PhysicalBridge? bridge;
-                if (script != null && (bridge = connection.BridgeCouldBeNull) != null
-                    && bridge.Multiplexer.CommandMap.IsAvailable(RedisCommand.SCRIPT)
-                    && (Flags & CommandFlags.NoScriptCache) == 0)
-                {
-                    // a script was provided (rather than a hash); check it is known and supported
-                    asciiHash = bridge.ServerEndPoint.GetScriptHash(script, command);
-
-                    if (asciiHash == null)
-                    {
-                        var msg = new ScriptLoadMessage(Flags, script);
-                        msg.SetInternalCall();
-                        msg.SetSource(ResultProcessor.ScriptLoad, null);
-                        yield return msg;
-                    }
-                }
-                yield return this;
-            }
-
             protected override void WriteImpl(PhysicalConnection physical)
             {
                 if (hexHash != null)
                 {
                     physical.WriteHeader(RedisCommand.EVALSHA, 2 + keys.Length + values.Length);
                     physical.WriteSha1AsHex(hexHash);
-                }
-                else if (asciiHash != null)
-                {
-                    physical.WriteHeader(RedisCommand.EVALSHA, 2 + keys.Length + values.Length);
-                    physical.WriteBulkString((RedisValue)asciiHash);
                 }
                 else
                 {
